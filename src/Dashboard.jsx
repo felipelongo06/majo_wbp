@@ -20,6 +20,7 @@ const fmtPct = (n) => n === null || n === undefined ? "—" : n.toFixed(2) + "%"
 
 export default function Dashboard() {
   const [source, setSource] = useState("both");
+  const [service, setService] = useState("all");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [sortCol, setSortCol] = useState("date");
@@ -49,6 +50,15 @@ export default function Dashboard() {
     cost_per_contact: { label: "Custo/Contato", fmtTip: v => v !== null ? "R$ " + v.toFixed(2) : "—", color: "#3AE860" }
   };
 
+  const filterByService = (rows) => {
+    if (service === "all") return rows;
+    return rows.filter(r => {
+      if (!r.campaign) return true;
+      const hasCompany = r.campaign.toLowerCase().includes("company");
+      return service === "company" ? hasCompany : !hasCompany;
+    });
+  };
+
   const data = useMemo(() => {
     let rows = [];
     if (source === "meta" || source === "both") {
@@ -57,6 +67,8 @@ export default function Dashboard() {
     if (source === "google" || source === "both") {
       GOOGLE_RAW.forEach(r => rows.push({...r, source: "Google Ads"}));
     }
+    // Apply service filter before aggregation
+    rows = filterByService(rows);
     if (source === "both") {
       // Aggregate by date
       const byDate = {};
@@ -78,7 +90,7 @@ export default function Dashboard() {
     if (dateFrom) rows = rows.filter(r => r.date >= dateFrom);
     if (dateTo) rows = rows.filter(r => r.date <= dateTo);
     return rows;
-  }, [source, dateFrom, dateTo]);
+  }, [source, service, dateFrom, dateTo]);
 
   const sorted = useMemo(() => {
     const s = [...data].sort((a, b) => {
@@ -164,10 +176,18 @@ export default function Dashboard() {
             agencia<span style={{color: C.green, fontWeight: 700}}>.</span>wbp | comunicacao e marketing
           </div>
         </div>
-        <div style={{display: "flex", gap: 6, width: mob ? "100%" : "auto"}}>
-          <button style={{...btnStyle(source==="meta"), flex: mob ? 1 : "none"}} onClick={() => {setSource("meta"); setPage(0);}}>Meta Ads</button>
-          <button style={{...btnStyle(source==="google"), flex: mob ? 1 : "none"}} onClick={() => {setSource("google"); setPage(0);}}>Google Ads</button>
-          <button style={{...btnStyle(source==="both"), flex: mob ? 1 : "none"}} onClick={() => {setSource("both"); setPage(0);}}>Todos</button>
+        <div style={{display: "flex", gap: mob ? 8 : 12, width: mob ? "100%" : "auto", flexDirection: mob ? "column" : "row", alignItems: mob ? "stretch" : "center"}}>
+          <div style={{display: "flex", gap: 6, flex: mob ? "none" : "none"}}>
+            <button style={{...btnStyle(source==="meta"), flex: mob ? 1 : "none"}} onClick={() => {setSource("meta"); setPage(0);}}>Meta Ads</button>
+            <button style={{...btnStyle(source==="google"), flex: mob ? 1 : "none"}} onClick={() => {setSource("google"); setPage(0);}}>Google Ads</button>
+            <button style={{...btnStyle(source==="both"), flex: mob ? 1 : "none"}} onClick={() => {setSource("both"); setPage(0);}}>Todos</button>
+          </div>
+          <select value={service} onChange={e => {setService(e.target.value); setPage(0);}}
+            style={{background: C.dark, border: "1px solid " + C.greenDark, borderRadius: 6, padding: mob ? "6px 10px" : "8px 14px", color: C.green, fontSize: mob ? 11 : 13, fontFamily: "Poppins, sans-serif", fontWeight: 600, cursor: "pointer", outline: "none", appearance: "auto"}}>
+            <option value="all" style={{background: C.dark, color: C.white}}>Todos os Servicos</option>
+            <option value="company" style={{background: C.dark, color: C.white}}>In Company</option>
+            <option value="clinica" style={{background: C.dark, color: C.white}}>Clinica</option>
+          </select>
         </div>
       </div>
 
