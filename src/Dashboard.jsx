@@ -36,7 +36,8 @@ export default function Dashboard() {
 
   const mob = w < 768;
   const tab = w >= 768 && w < 1024;
-  const pad = mob ? "16px" : "24px 32px";
+  const compact = w < 1200;
+  const pad = mob ? "14px" : "24px 32px";
   const pageSize = 20;
 
   const metricOptions = {
@@ -193,20 +194,20 @@ export default function Dashboard() {
         </div>
 
         {/* KPI Cards */}
-        <div style={{display: "grid", gridTemplateColumns: mob ? "repeat(2, 1fr)" : tab ? "repeat(3, 1fr)" : "repeat(6, 1fr)", gap: mob ? 10 : 16, marginBottom: mob ? 20 : 28}}>
+        <div style={{display: "grid", gridTemplateColumns: mob ? "repeat(2, 1fr)" : compact ? "repeat(3, 1fr)" : "repeat(6, 1fr)", gap: mob ? 8 : compact ? 12 : 16, marginBottom: mob ? 16 : 28}}>
           {[
             {label: "Valor Usado", value: fmtBRL(kpis.spend), sub: "total investido"},
             {label: "Impressoes", value: fmt(kpis.impressions), sub: "alcance"},
             {label: "Cliques", value: fmt(kpis.clicks), sub: "todos"},
-            {label: "Tx Conversao", value: fmtPct(kpis.conv_rate), sub: "cliques > contatos"},
+            {label: "Tx Conv.", value: fmtPct(kpis.conv_rate), sub: "cliques > contatos"},
             {label: "Contatos", value: kpis.contacts.toLocaleString("pt-BR"), sub: "por mensagem"},
-            {label: "Custo/Contato", value: fmtBRL(kpis.cost_per_contact), sub: "medio"}
+            {label: "Custo/Cont.", value: fmtBRL(kpis.cost_per_contact), sub: "medio"}
           ].map((k, i) => (
-            <div key={i} style={{background: C.dark2, borderRadius: 10, padding: mob ? "14px 12px" : "20px 16px", position: "relative", overflow: "hidden"}}>
-              <div style={{position: "absolute", top: 0, left: 0, width: 4, height: "100%", background: C.green, borderRadius: "10px 0 0 10px"}} />
-              <div style={{fontSize: mob ? 9 : 10, color: C.grayLight, textTransform: "uppercase", letterSpacing: 1.5, fontWeight: 600, marginBottom: mob ? 4 : 8}}>{k.label}</div>
-              <div style={{fontSize: mob ? 16 : 22, fontWeight: 700, fontFamily: "Poppins, sans-serif", color: C.green}}>{k.value}</div>
-              <div style={{fontSize: mob ? 9 : 10, color: C.gray, marginTop: 4}}>{k.sub}</div>
+            <div key={i} style={{background: C.dark2, borderRadius: 10, padding: mob ? "10px 10px" : compact ? "14px 12px" : "20px 16px", position: "relative", overflow: "hidden", minWidth: 0}}>
+              <div style={{position: "absolute", top: 0, left: 0, width: 3, height: "100%", background: C.green, borderRadius: "10px 0 0 10px"}} />
+              <div style={{fontSize: mob ? 8 : compact ? 9 : 10, color: C.grayLight, textTransform: "uppercase", letterSpacing: mob ? 0.8 : 1.5, fontWeight: 600, marginBottom: mob ? 3 : 8, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap"}}>{k.label}</div>
+              <div style={{fontSize: mob ? 14 : compact ? 17 : 22, fontWeight: 700, fontFamily: "Poppins, sans-serif", color: C.green, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap"}}>{k.value}</div>
+              <div style={{fontSize: mob ? 8 : 10, color: C.gray, marginTop: mob ? 2 : 4}}>{k.sub}</div>
             </div>
           ))}
         </div>
