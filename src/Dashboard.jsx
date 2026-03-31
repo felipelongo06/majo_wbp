@@ -111,6 +111,26 @@ export default function Dashboard() {
     setPage(0);
   };
 
+  const presets = useMemo(() => {
+    const today = new Date();
+    const iso = d => d.toISOString().slice(0,10);
+    return [
+      { label: "Ontem", from: (() => { const y = new Date(today); y.setDate(y.getDate()-1); return iso(y); })(), to: (() => { const y = new Date(today); y.setDate(y.getDate()-1); return iso(y); })() },
+      { label: "7 dias", from: (() => { const d = new Date(today); d.setDate(d.getDate()-6); return iso(d); })(), to: iso(today) },
+      { label: "14 dias", from: (() => { const d = new Date(today); d.setDate(d.getDate()-13); return iso(d); })(), to: iso(today) },
+      { label: "30 dias", from: (() => { const d = new Date(today); d.setDate(d.getDate()-29); return iso(d); })(), to: iso(today) },
+      { label: "Mes anterior", from: iso(new Date(today.getFullYear(), today.getMonth()-1, 1)), to: iso(new Date(today.getFullYear(), today.getMonth(), 0)) },
+      { label: "Mes atual", from: iso(new Date(today.getFullYear(), today.getMonth(), 1)), to: iso(today) },
+      { label: "Este ano", from: iso(new Date(today.getFullYear(), 0, 1)), to: iso(today) },
+    ];
+  }, []);
+
+  const chipStyle = (active) => ({
+    padding: "5px 14px", border: "1px solid " + (active ? C.green : C.greenDark), borderRadius: 20, cursor: "pointer",
+    fontSize: 11, fontWeight: 500, fontFamily: "Inter, sans-serif", transition: "all .2s",
+    background: active ? C.green + "22" : "transparent", color: active ? C.green : C.grayLight
+  });
+
   const arrow = (col) => sortCol === col ? (sortDir === "asc" ? " \u25B2" : " \u25BC") : "";
 
   const btnStyle = (active) => ({
@@ -144,29 +164,10 @@ export default function Dashboard() {
         <div style={{display: "flex", flexDirection: "column", gap: 10, marginBottom: 24}}>
           <div style={{display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap"}}>
             <span style={{fontSize: 12, color: C.grayLight, fontWeight: 600, textTransform: "uppercase", letterSpacing: 1}}>Periodo:</span>
-            {(() => {
-              const today = new Date();
-              const iso = d => d.toISOString().slice(0,10);
-              const presets = [
-                { label: "Ontem", fn: () => { const y = new Date(today); y.setDate(y.getDate()-1); return [iso(y), iso(y)]; }},
-                { label: "7 dias", fn: () => { const d = new Date(today); d.setDate(d.getDate()-6); return [iso(d), iso(today)]; }},
-                { label: "14 dias", fn: () => { const d = new Date(today); d.setDate(d.getDate()-13); return [iso(d), iso(today)]; }},
-                { label: "30 dias", fn: () => { const d = new Date(today); d.setDate(d.getDate()-29); return [iso(d), iso(today)]; }},
-                { label: "Mes anterior", fn: () => { const s = new Date(today.getFullYear(), today.getMonth()-1, 1); const e = new Date(today.getFullYear(), today.getMonth(), 0); return [iso(s), iso(e)]; }},
-                { label: "Mes atual", fn: () => { const s = new Date(today.getFullYear(), today.getMonth(), 1); return [iso(s), iso(today)]; }},
-                { label: "Este ano", fn: () => { const s = new Date(today.getFullYear(), 0, 1); return [iso(s), iso(today)]; }},
-              ];
-              const chipStyle = (active) => ({
-                padding: "5px 14px", border: "1px solid " + (active ? C.green : C.greenDark), borderRadius: 20, cursor: "pointer",
-                fontSize: 11, fontWeight: 500, fontFamily: "Inter, sans-serif", transition: "all .2s",
-                background: active ? C.green + "22" : "transparent", color: active ? C.green : C.grayLight
-              });
-              return presets.map((p, i) => {
-                const [pFrom, pTo] = p.fn();
-                const active = dateFrom === pFrom && dateTo === pTo;
-                return <button key={i} style={chipStyle(active)} onClick={() => { setDateFrom(pFrom); setDateTo(pTo); setPage(0); }}>{p.label}</button>;
-              });
-            })()}
+            {presets.map((p, i) => {
+              const active = dateFrom === p.from && dateTo === p.to;
+              return <button key={i} style={chipStyle(active)} onClick={() => { setDateFrom(p.from); setDateTo(p.to); setPage(0); }}>{p.label}</button>;
+            })}
             {(dateFrom || dateTo) && <button onClick={() => {setDateFrom(""); setDateTo(""); setPage(0);}}
               style={{padding: "5px 14px", border: "1px solid " + C.gray, borderRadius: 20, cursor: "pointer", fontSize: 11, fontWeight: 500, fontFamily: "Inter, sans-serif", background: "transparent", color: C.grayLight}}>Limpar</button>}
           </div>
