@@ -1,16 +1,17 @@
 import { useState, useMemo, useEffect } from "react";
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 
-const SHEET_URL = "https://docs.google.com/spreadsheets/d/1c3tp3VMKU49Ix5r0rFEVPmT0_tLJJt8qzQ-w8CrjaMQ/export?format=csv";
+const SHEET_ID = "1c3tp3VMKU49Ix5r0rFEVPmT0_tLJJt8qzQ-w8CrjaMQ";
+const sheetURL = (name) => `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(name)}`;
 
 const C = {
   dark: "#1C2533", dark2: "#212E3F", green: "#3AE860", greenDark: "#1A5530",
-  gray: "#888888", grayLight: "#AABBC8", white: "#FFFFFF", light: "#F3F3F3"
+  gray: "#888888", grayLight: "#AABBC8", white: "#FFFFFF"
 };
 
 const parseBR = (s) => {
-  if (!s || s === "" || s === "0") return 0;
-  const clean = String(s).replace(/\./g, "").replace(",", ".").replace("%", "").trim();
+  if (!s || s === "") return 0;
+  const clean = String(s).replace(/"/g, "").replace(/\./g, "").replace(",", ".").replace("%", "").trim();
   const n = parseFloat(clean);
   return isNaN(n) ? 0 : n;
 };
@@ -23,37 +24,59 @@ const classifyService = (campaign) => {
   return "clinica";
 };
 
-const parseCSV = (text) => {
+const parseCSVFields = (line) => {
+  const fields = [];
+  let current = "";
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '"') { inQuotes = !inQuotes; }
+    else if (ch === ',' && !inQuotes) { fields.push(current.trim()); current = ""; }
+    else { current += ch; }
+  }
+  fields.push(current.trim());
+  return fields;
+};
+
+const parseMetaCSV = (text) => {
   const lines = text.split(/\r?\n/).filter(l => l.trim());
-  if (lines.length < 2) return [];
   const rows = [];
   for (let i = 1; i < lines.length; i++) {
-    const fields = [];
-    let current = "";
-    let inQuotes = false;
-    for (let c = 0; c < lines[i].length; c++) {
-      const ch = lines[i][c];
-      if (ch === '"') { inQuotes = !inQuotes; }
-      else if (ch === ',' && !inQuotes) { fields.push(current); current = ""; }
-      else { current += ch; }
-    }
-    fields.push(current);
-    if (fields.length < 7) continue;
-    const date = fields[0]?.trim();
-    const campaign = fields[1]?.trim();
+    const f = parseCSVFields(lines[i]);
+    const date = f[0]; const campaign = f[1];
     if (!date || !date.match(/^\d{4}-/)) continue;
-    const spend = parseBR(fields[2]);
-    const impressions = Math.round(parseBR(fields[3]));
-    const clicks = Math.round(parseBR(fields[4]));
-    const contacts = Math.round(parseBR(fields[6]));
-    const costPerContact = contacts > 0 ? parseBR(fields[7]) : null;
-    const convRate = clicks > 0 ? (contacts / clicks) * 100 : 0;
+    const spend = parseBR(f[2]);
+    const impressions = Math.round(parseBR(f[3]));
+    const clicks = Math.round(parseBR(f[4]));
+    const contacts = Math.round(parseBR(f[6]));
+    const costPC = contacts > 0 ? parseBR(f[7]) : null;
     rows.push({
-      date, campaign, service: classifyService(campaign),
-      spend, impressions, clicks,
-      conv_rate: Math.round(convRate * 100) / 100,
-      contacts,
-      cost_per_contact: costPerContact !== null ? Math.round(costPerContact * 100) / 100 : null
+      date, campaign, platform: "meta", service: classifyService(campaign),
+      spend, impressions, clicks, contacts,
+      conv_rate: clicks > 0 ? Math.round((contacts / clicks) * 10000) / 100 : 0,
+      cost_per_contact: costPC !== null ? Math.round(costPC * 100) / 100 : null
+    });
+  }
+  return rows;
+};
+
+const parseGoogleCSV = (text) => {
+  const lines = text.split(/\r?\n/).filter(l => l.trim());
+  const rows = [];
+  for (let i = 1; i < lines.length; i++) {
+    const f = parseCSVFields(lines[i]);
+    const date = f[0]; const campaign = f[1];
+    if (!date || !date.match(/^\d{4}-/)) continue;
+    const spend = parseBR(f[3]);
+    const impressions = Math.round(parseBR(f[4]));
+    const clicks = Math.round(parseBR(f[5]));
+    const contacts = Math.round(parseBR(f[7]));
+    const costPC = contacts > 0 ? parseBR(f[8]) : null;
+    rows.push({
+      date, campaign, platform: "google", service: classifyService(campaign),
+      spend, impressions, clicks, contacts,
+      conv_rate: clicks > 0 ? Math.round((contacts / clicks) * 10000) / 100 : 0,
+      cost_per_contact: costPC !== null ? Math.round(costPC * 100) / 100 : null
     });
   }
   return rows;
@@ -73,6 +96,7 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [lastUpdate, setLastUpdate] = useState(null);
+  const [platform, setPlatform] = useState("all");
   const [service, setService] = useState("all");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
@@ -89,18 +113,21 @@ export default function Dashboard() {
   }, []);
 
   useEffect(() => {
-    setLoading(true);
-    setError(null);
-    fetch(SHEET_URL)
-      .then(r => { if (!r.ok) throw new Error("Erro ao carregar planilha"); return r.text(); })
-      .then(csv => {
-        const parsed = parseCSV(csv);
-        if (parsed.length === 0) throw new Error("Planilha vazia ou formato invalido");
-        setRawData(parsed);
-        setLastUpdate(new Date());
-        setLoading(false);
-      })
-      .catch(e => { setError(e.message); setLoading(false); });
+    setLoading(true); setError(null);
+    Promise.all([
+      fetch(sheetURL("Meta Ads")).then(r => { if (!r.ok) throw new Error("Erro Meta Ads"); return r.text(); }),
+      fetch(sheetURL("Google Ads")).then(r => { if (!r.ok) throw new Error("Erro Google Ads"); return r.text(); })
+    ])
+    .then(([metaCsv, googleCsv]) => {
+      const meta = parseMetaCSV(metaCsv);
+      const google = parseGoogleCSV(googleCsv);
+      const all = [...meta, ...google];
+      if (all.length === 0) throw new Error("Nenhum dado encontrado nas planilhas");
+      setRawData(all);
+      setLastUpdate(new Date());
+      setLoading(false);
+    })
+    .catch(e => { setError(e.message); setLoading(false); });
   }, []);
 
   const mob = w < 768;
@@ -119,6 +146,7 @@ export default function Dashboard() {
 
   const data = useMemo(() => {
     let rows = [...rawData];
+    if (platform !== "all") rows = rows.filter(r => r.platform === platform);
     if (service !== "all") rows = rows.filter(r => r.service === service);
     if (dateFrom) rows = rows.filter(r => r.date >= dateFrom);
     if (dateTo) rows = rows.filter(r => r.date <= dateTo);
@@ -126,24 +154,18 @@ export default function Dashboard() {
     rows.forEach(r => {
       if (!byDate[r.date]) byDate[r.date] = {date: r.date, spend:0, impressions:0, clicks:0, contacts:0};
       const d = byDate[r.date];
-      d.spend += r.spend;
-      d.impressions += r.impressions;
-      d.clicks += r.clicks;
-      d.contacts += r.contacts;
+      d.spend += r.spend; d.impressions += r.impressions; d.clicks += r.clicks; d.contacts += r.contacts;
     });
     return Object.values(byDate).map(d => ({
-      ...d,
-      spend: Math.round(d.spend * 100) / 100,
+      ...d, spend: Math.round(d.spend * 100) / 100,
       conv_rate: d.clicks > 0 ? Math.round((d.contacts / d.clicks) * 10000) / 100 : 0,
       cost_per_contact: d.contacts > 0 ? Math.round((d.spend / d.contacts) * 100) / 100 : null
     }));
-  }, [rawData, service, dateFrom, dateTo]);
+  }, [rawData, platform, service, dateFrom, dateTo]);
 
   const sorted = useMemo(() => {
     return [...data].sort((a, b) => {
-      let va = a[sortCol], vb = b[sortCol];
-      if (va === null) va = -Infinity;
-      if (vb === null) vb = -Infinity;
+      let va = a[sortCol] ?? -Infinity, vb = b[sortCol] ?? -Infinity;
       if (typeof va === "string") return sortDir === "asc" ? va.localeCompare(vb) : vb.localeCompare(va);
       return sortDir === "asc" ? va - vb : vb - va;
     });
@@ -186,39 +208,31 @@ export default function Dashboard() {
     fontSize: 11, fontWeight: 500, fontFamily: "Inter, sans-serif", transition: "all .2s",
     background: active ? C.green + "22" : "transparent", color: active ? C.green : C.grayLight
   });
-
-  const toggleSort = (col) => {
-    if (sortCol === col) setSortDir(d => d === "asc" ? "desc" : "asc");
-    else { setSortCol(col); setSortDir("desc"); }
-    setPage(0);
-  };
-
+  const toggleSort = (col) => { if (sortCol === col) setSortDir(d => d === "asc" ? "desc" : "asc"); else { setSortCol(col); setSortDir("desc"); } setPage(0); };
   const arrow = (col) => sortCol === col ? (sortDir === "asc" ? " \u25B2" : " \u25BC") : "";
 
   const btnStyle = (active) => ({
-    padding: mob ? "6px 12px" : "8px 20px", border: "none", borderRadius: 6, cursor: "pointer", fontFamily: "Poppins, sans-serif",
-    fontSize: mob ? 11 : 13, fontWeight: 600, transition: "all .2s",
+    padding: mob ? "6px 12px" : "8px 16px", border: "none", borderRadius: 6, cursor: "pointer", fontFamily: "Poppins, sans-serif",
+    fontSize: mob ? 10 : 12, fontWeight: 600, transition: "all .2s",
     background: active ? C.green : C.dark2, color: active ? C.dark : C.grayLight,
     boxShadow: active ? "0 0 12px rgba(58,232,96,.3)" : "none"
   });
-
   const svcBtnStyle = (active) => ({
-    padding: mob ? "6px 10px" : "8px 16px", border: active ? "2px solid " + C.green : "1px solid " + C.greenDark,
+    padding: mob ? "5px 8px" : "6px 14px", border: active ? "2px solid " + C.green : "1px solid " + C.greenDark,
     borderRadius: 6, cursor: "pointer", fontFamily: "Inter, sans-serif",
-    fontSize: mob ? 10 : 12, fontWeight: 600, transition: "all .2s",
+    fontSize: mob ? 10 : 11, fontWeight: 600, transition: "all .2s",
     background: active ? C.green + "18" : C.dark2, color: active ? C.green : C.grayLight
   });
 
   if (loading) return (
-    <div style={{background: C.dark, minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", fontFamily: "Inter, sans-serif"}}>
+    <div style={{background: C.dark, minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", fontFamily: "Inter"}}>
       <div style={{width: 40, height: 40, border: "3px solid " + C.greenDark, borderTop: "3px solid " + C.green, borderRadius: "50%", animation: "spin 1s linear infinite"}} />
-      <div style={{color: C.grayLight, marginTop: 16, fontSize: 14}}>Carregando dados da planilha...</div>
+      <div style={{color: C.grayLight, marginTop: 16, fontSize: 14}}>Carregando dados...</div>
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>
   );
-
   if (error) return (
-    <div style={{background: C.dark, minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", fontFamily: "Inter, sans-serif", padding: 32}}>
+    <div style={{background: C.dark, minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", fontFamily: "Inter", padding: 32}}>
       <div style={{color: "#FF6B6B", fontSize: 18, fontWeight: 700, fontFamily: "Poppins", marginBottom: 8}}>Erro ao carregar dados</div>
       <div style={{color: C.grayLight, fontSize: 14, marginBottom: 20}}>{error}</div>
       <button onClick={() => window.location.reload()} style={{...btnStyle(true), padding: "10px 24px"}}>Tentar novamente</button>
@@ -228,7 +242,7 @@ export default function Dashboard() {
   return (
     <div style={{background: C.dark, minHeight: "100vh", color: C.white, fontFamily: "Inter, sans-serif"}}>
       {/* Header */}
-      <div style={{background: C.dark2, padding: pad, display: "flex", flexDirection: mob ? "column" : "row", alignItems: mob ? "flex-start" : "center", justifyContent: "space-between", gap: mob ? 12 : 0, borderBottom: "2px solid " + C.greenDark}}>
+      <div style={{background: C.dark2, padding: pad, display: "flex", flexDirection: mob ? "column" : "row", alignItems: mob ? "flex-start" : "center", justifyContent: "space-between", gap: mob ? 10 : 0, borderBottom: "2px solid " + C.greenDark}}>
         <div>
           <div style={{fontFamily: "Poppins, sans-serif", fontSize: mob ? 18 : 24, fontWeight: 700, letterSpacing: -0.5}}>
             Dashboard de <span style={{color: C.green}}>Performance</span>
@@ -238,11 +252,20 @@ export default function Dashboard() {
             {lastUpdate && <span style={{marginLeft: 12, fontSize: 10, color: C.gray}}>Atualizado: {lastUpdate.toLocaleString("pt-BR")}</span>}
           </div>
         </div>
-        <div style={{display: "flex", gap: 6, width: mob ? "100%" : "auto", flexWrap: "wrap"}}>
-          <button style={svcBtnStyle(service==="all")} onClick={() => {setService("all"); setPage(0);}}>Todos</button>
-          <button style={svcBtnStyle(service==="clinica")} onClick={() => {setService("clinica"); setPage(0);}}>Clinica</button>
-          <button style={svcBtnStyle(service==="company")} onClick={() => {setService("company"); setPage(0);}}>In Company</button>
-          <button style={svcBtnStyle(service==="loja")} onClick={() => {setService("loja"); setPage(0);}}>Loja</button>
+        <div style={{display: "flex", flexDirection: mob ? "column" : "row", gap: mob ? 8 : 12, width: mob ? "100%" : "auto"}}>
+          {/* Platform filter */}
+          <div style={{display: "flex", gap: 4}}>
+            <button style={btnStyle(platform==="all")} onClick={() => {setPlatform("all"); setPage(0);}}>Todos</button>
+            <button style={btnStyle(platform==="meta")} onClick={() => {setPlatform("meta"); setPage(0);}}>Meta Ads</button>
+            <button style={btnStyle(platform==="google")} onClick={() => {setPlatform("google"); setPage(0);}}>Google Ads</button>
+          </div>
+          {/* Service filter */}
+          <div style={{display: "flex", gap: 4}}>
+            <button style={svcBtnStyle(service==="all")} onClick={() => {setService("all"); setPage(0);}}>Todos</button>
+            <button style={svcBtnStyle(service==="clinica")} onClick={() => {setService("clinica"); setPage(0);}}>Clinica</button>
+            <button style={svcBtnStyle(service==="company")} onClick={() => {setService("company"); setPage(0);}}>In Company</button>
+            <button style={svcBtnStyle(service==="loja")} onClick={() => {setService("loja"); setPage(0);}}>Loja</button>
+          </div>
         </div>
       </div>
 
@@ -256,7 +279,7 @@ export default function Dashboard() {
               return <button key={i} style={chipStyle(active)} onClick={() => { setDateFrom(p.from); setDateTo(p.to); setPage(0); }}>{p.label}</button>;
             })}
             {(dateFrom || dateTo) && <button onClick={() => {setDateFrom(""); setDateTo(""); setPage(0);}}
-              style={{padding: "5px 14px", border: "1px solid " + C.gray, borderRadius: 20, cursor: "pointer", fontSize: 11, fontWeight: 500, fontFamily: "Inter, sans-serif", background: "transparent", color: C.grayLight}}>Limpar</button>}
+              style={{padding: "5px 14px", border: "1px solid " + C.gray, borderRadius: 20, cursor: "pointer", fontSize: 11, fontWeight: 500, fontFamily: "Inter", background: "transparent", color: C.grayLight}}>Limpar</button>}
           </div>
           <div style={{display: "flex", gap: 8, alignItems: "center", flexWrap: mob ? "wrap" : "nowrap"}}>
             <input type="date" value={dateFrom} onChange={e => {setDateFrom(e.target.value); setPage(0);}}
@@ -296,8 +319,7 @@ export default function Dashboard() {
                 <CartesianGrid strokeDasharray="3 3" stroke={C.greenDark} />
                 <XAxis dataKey="date" tick={{fill: C.gray, fontSize: mob ? 7 : 9}} tickFormatter={d => d.slice(5)} interval={mob ? 3 : "preserveStartEnd"} />
                 <YAxis tick={{fill: C.gray, fontSize: mob ? 7 : 9}} width={mob ? 35 : 60} />
-                <Tooltip contentStyle={{background: C.dark, border: "1px solid " + C.greenDark, borderRadius: 8, color: C.white, fontSize: 11}}
-                  formatter={(v) => ["R$ " + v.toFixed(2), "Spend"]} labelFormatter={l => l} />
+                <Tooltip contentStyle={{background: C.dark, border: "1px solid " + C.greenDark, borderRadius: 8, color: C.white, fontSize: 11}} formatter={(v) => ["R$ " + v.toFixed(2), "Spend"]} />
                 <Bar dataKey="spend" fill={C.green} radius={[3,3,0,0]} />
               </BarChart>
             </ResponsiveContainer>
@@ -307,9 +329,7 @@ export default function Dashboard() {
               <div style={{fontSize: mob ? 12 : 13, fontWeight: 600, color: C.grayLight, fontFamily: "Poppins"}}>{metricOptions[rightMetric].label}</div>
               <select value={rightMetric} onChange={e => setRightMetric(e.target.value)}
                 style={{background: C.dark, border: "1px solid " + C.greenDark, borderRadius: 6, padding: "5px 10px", color: C.green, fontSize: 12, fontFamily: "Inter", fontWeight: 600, cursor: "pointer", outline: "none"}}>
-                {Object.entries(metricOptions).map(([k, v]) => (
-                  <option key={k} value={k} style={{background: C.dark, color: C.white}}>{v.label}</option>
-                ))}
+                {Object.entries(metricOptions).map(([k, v]) => (<option key={k} value={k} style={{background: C.dark, color: C.white}}>{v.label}</option>))}
               </select>
             </div>
             <ResponsiveContainer width="100%" height={mob ? 160 : 200}>
@@ -335,15 +355,7 @@ export default function Dashboard() {
             <table style={{width: "100%", borderCollapse: "collapse", fontSize: mob ? 11 : 12, minWidth: mob ? 580 : "auto"}}>
               <thead>
                 <tr style={{borderBottom: "1px solid " + C.greenDark}}>
-                  {[
-                    {key: "date", label: "Data"},
-                    {key: "spend", label: "Valor Usado"},
-                    {key: "impressions", label: "Impr."},
-                    {key: "clicks", label: "Cliques"},
-                    {key: "conv_rate", label: "Tx Conv."},
-                    {key: "contacts", label: "Contatos"},
-                    {key: "cost_per_contact", label: "Custo/Cont."}
-                  ].map(h => (
+                  {[{key:"date",label:"Data"},{key:"spend",label:"Valor Usado"},{key:"impressions",label:"Impr."},{key:"clicks",label:"Cliques"},{key:"conv_rate",label:"Tx Conv."},{key:"contacts",label:"Contatos"},{key:"cost_per_contact",label:"Custo/Cont."}].map(h => (
                     <th key={h.key} onClick={() => toggleSort(h.key)}
                       style={{padding: mob ? "8px 8px" : "10px 14px", textAlign: h.key === "date" ? "left" : "right", color: C.green, fontWeight: 600, cursor: "pointer", fontSize: mob ? 10 : 11, whiteSpace: "nowrap", userSelect: "none"}}>
                       {h.label}{arrow(h.key)}
