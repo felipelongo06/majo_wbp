@@ -138,25 +138,75 @@ export default function Dashboard() {
   const DeltaBadge=({curr,prev,invert})=>{const d=delta(curr,prev,invert);if(!d)return null;const color=d.positive?C.green:C.red;const ar=d.pct>0?"\u25B2":d.pct<0?"\u25BC":"";return<span style={{fontSize:mob?8:10,fontWeight:600,color,marginLeft:4}}>{ar} {Math.abs(d.pct).toFixed(1)}%</span>;};
   const comparing=compareMode!=="none"&&compPeriod&&compKpis;
 
-  // Funnel step component
-  const FunnelStep = ({label, value, fmtValue, width, prevValue, isFirst, isMoney}) => {
-    const rate = !isFirst && prevValue > 0 ? ((value / prevValue) * 100) : null;
+  // SVG Funnel renderer
+  const FunnelChart = ({ steps }) => {
+    const svgW = mob ? 360 : 900;
+    const svgH = mob ? 280 : 160;
+    const stepW = svgW / steps.length;
+    const maxH = mob ? 50 : 100;
+    const minH = mob ? 4 : 6;
+    const cy = mob ? 60 : svgH / 2;
+
+    const heights = steps.map((s, i) => {
+      const ratio = i === 0 ? 1 : Math.max(0.04, steps[i].value / Math.max(1, steps[0].value));
+      return Math.max(minH, maxH * Math.sqrt(ratio));
+    });
+
+    // Build flowing path
+    const topPoints = heights.map((h, i) => ({ x: i * stepW, y: cy - h / 2 }));
+    const botPoints = heights.map((h, i) => ({ x: i * stepW, y: cy + h / 2 }));
+    // Add end points
+    topPoints.push({ x: svgW, y: cy - minH / 2 });
+    botPoints.push({ x: svgW, y: cy + minH / 2 });
+
+    const smooth = (pts) => {
+      if (pts.length < 2) return "";
+      let d = `M ${pts[0].x},${pts[0].y}`;
+      for (let i = 0; i < pts.length - 1; i++) {
+        const cp = (pts[i + 1].x - pts[i].x) * 0.5;
+        d += ` C ${pts[i].x + cp},${pts[i].y} ${pts[i + 1].x - cp},${pts[i + 1].y} ${pts[i + 1].x},${pts[i + 1].y}`;
+      }
+      return d;
+    };
+
+    const topPath = smooth(topPoints);
+    const botPath = smooth(botPoints.slice().reverse());
+    const fullPath = topPath + " L " + botPoints[botPoints.length - 1].x + "," + botPoints[botPoints.length - 1].y + " " + botPath.replace(/^M /, "L ") + " Z";
+
     return (
-      <div style={{display:"flex",flexDirection:"column",alignItems:"center",flex:1,minWidth:0}}>
-        {!isFirst && rate !== null && (
-          <div style={{fontSize:mob?9:11,color:C.yellow,fontWeight:700,marginBottom:4,textAlign:"center"}}>
-            {rate.toFixed(1)}%
-          </div>
-        )}
-        {!isFirst && <div style={{width:0,height:0,borderLeft:"6px solid transparent",borderRight:"6px solid transparent",borderTop:"6px solid "+C.yellow,marginBottom:4}}/>}
-        <div style={{
-          width: width+"%", minWidth: mob?50:70, background: `linear-gradient(135deg, ${C.green}${isFirst?"":"cc"}, ${C.greenDark})`,
-          borderRadius: 8, padding: mob?"8px 4px":"12px 8px", textAlign:"center", transition:"all .3s",
-          boxShadow: "0 2px 12px rgba(58,232,96,0.15)"
-        }}>
-          <div style={{fontSize:mob?14:20,fontWeight:700,fontFamily:"Poppins",color:C.dark}}>{fmtValue}</div>
-          <div style={{fontSize:mob?8:10,fontWeight:600,color:C.dark+"cc",marginTop:2,textTransform:"uppercase",letterSpacing:.5}}>{label}</div>
-        </div>
+      <div style={{ position: "relative", width: "100%", overflow: "hidden" }}>
+        <svg viewBox={`0 0 ${svgW} ${svgH + (mob ? 180 : 80)}`} width="100%" style={{ display: "block" }}>
+          <defs>
+            <linearGradient id="funnelGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+              <stop offset="0%" stopColor={C.green} stopOpacity="0.95" />
+              <stop offset="40%" stopColor={C.green} stopOpacity="0.7" />
+              <stop offset="70%" stopColor="#2BC050" stopOpacity="0.5" />
+              <stop offset="100%" stopColor={C.greenDark} stopOpacity="0.9" />
+            </linearGradient>
+            <filter id="glow"><feGaussianBlur stdDeviation="3" result="blur" /><feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge></filter>
+          </defs>
+          <path d={fullPath} fill="url(#funnelGrad)" filter="url(#glow)" />
+          <path d={fullPath} fill="none" stroke={C.green} strokeWidth="1" opacity="0.4" />
+
+          {/* Vertical dividers, labels, values */}
+          {steps.map((s, i) => {
+            const x = i * stepW + stepW / 2;
+            const labelY = mob ? cy + 55 : cy + maxH / 2 + 22;
+            const valueY = mob ? cy + 40 : cy - maxH / 2 - 12;
+            const rate = i > 0 && steps[i - 1].value > 0 ? ((s.value / steps[i - 1].value) * 100) : null;
+
+            return (
+              <g key={i}>
+                {i > 0 && <line x1={i * stepW} y1={cy - maxH / 2 - 5} x2={i * stepW} y2={cy + maxH / 2 + 5} stroke={C.grayLight} strokeWidth="0.5" opacity="0.2" strokeDasharray="3 3" />}
+                <text x={x} y={valueY} textAnchor="middle" fill={C.white} fontSize={mob ? 13 : 18} fontWeight="700" fontFamily="Poppins">{s.fmtValue}</text>
+                <text x={x} y={labelY} textAnchor="middle" fill={C.grayLight} fontSize={mob ? 8 : 10} fontWeight="600" textTransform="uppercase" letterSpacing="0.5">{s.label}</text>
+                {rate !== null && (
+                  <text x={x} y={labelY + (mob ? 12 : 14)} textAnchor="middle" fill={C.yellow} fontSize={mob ? 8 : 10} fontWeight="700">{rate.toFixed(1)}%</text>
+                )}
+              </g>
+            );
+          })}
+        </svg>
       </div>
     );
   };
@@ -269,18 +319,14 @@ export default function Dashboard() {
           </div>
 
           {/* Funnel visualization */}
-          <div style={{display:"flex",flexDirection:mob?"column":"row",alignItems:"center",gap:mob?0:4,padding:mob?"0":"0 16px"}}>
-            {[
-              {label:"Valor Gasto",value:funnel.spend,fmtValue:fmtBRL(funnel.spend),width:100,isFirst:true},
-              {label:"Cliques",value:funnel.clicks,fmtValue:fmt(funnel.clicks),width:88,prevValue:null,isFirst:true},
-              {label:"Leads",value:funnel.leads,fmtValue:fmt(funnel.leads),width:74,prevValue:funnel.clicks},
-              {label:"Agendamentos",value:funnel.agendamentos,fmtValue:fmt(funnel.agendamentos),width:60,prevValue:funnel.leads},
-              {label:"Comparecimentos",value:funnel.comparecimentos,fmtValue:fmt(funnel.comparecimentos),width:46,prevValue:funnel.agendamentos},
-              {label:"Vendas",value:funnel.vendas,fmtValue:String(funnel.vendas),width:34,prevValue:funnel.comparecimentos},
-            ].map((step,i)=>(
-              <FunnelStep key={i} {...step} />
-            ))}
-          </div>
+          <FunnelChart steps={[
+            {label:"Valor Gasto",value:funnel.spend,fmtValue:fmtBRL(funnel.spend)},
+            {label:"Cliques",value:funnel.clicks,fmtValue:fmt(funnel.clicks)},
+            {label:"Leads",value:funnel.leads,fmtValue:fmt(funnel.leads)},
+            {label:"Agendamentos",value:funnel.agendamentos,fmtValue:fmt(funnel.agendamentos)},
+            {label:"Comparecer.",value:funnel.comparecimentos,fmtValue:String(funnel.comparecimentos)},
+            {label:"Vendas",value:funnel.vendas,fmtValue:String(funnel.vendas)},
+          ]} />
 
           {/* Bottom metrics */}
           <div style={{display:"flex",justifyContent:"center",gap:mob?16:40,marginTop:mob?16:24,paddingTop:16,borderTop:"1px solid "+C.greenDark+"66"}}>
